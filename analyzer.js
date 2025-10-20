@@ -33,15 +33,21 @@ function analyzeString(value) {
   for (const char of value) {
     character_frequency_map[char] = (character_frequency_map[char] || 0) + 1;
   }
-
+  // 7. Add id (use hash) and timestamp
+  const id = sha256_hash;
+  const created_at = new Date().toISOString();
   return {
+    id,
     value,
+    properties: {
     length,
     is_palindrome,
     unique_characters,
     word_count,
     sha256_hash,
-    character_frequency_map
+    character_frequency_map,
+    },
+    created_at
   };
 }
 
