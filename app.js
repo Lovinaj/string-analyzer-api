@@ -1,5 +1,6 @@
 const express = require ("express")
 const { analyzeString } = require("./analyzer")
+const { parseNaturalQuery } = require("./queryParser")
 
 const app = express()
 
@@ -21,7 +22,50 @@ app.post('/strings', (req, res) => {
   res.status(201).json(data);
 });
 
-// Get ALL strings
+app.get("/strings/filter-by-natural-language", (req, res) => {
+  const { query } = req.query;
+  if (!query) return res.status(400).json({ error: "Missing query parameter" });
+
+  let parsedFilters;
+  try {
+    parsedFilters = parseNaturalQuery(query);
+  } catch (err) {
+    return res
+      .status(err.status || 400)
+      .json({ error: err.message || "Unable to parse natural language query" });
+  }
+
+  // Apply filters (reuse logic from /strings)
+  let results = strings;
+
+  if (parsedFilters.is_palindrome !== undefined)
+    results = results.filter(s => s.properties.is_palindrome === parsedFilters.is_palindrome);
+
+  if (parsedFilters.min_length)
+    results = results.filter(s => s.properties.length >= parsedFilters.min_length);
+
+  if (parsedFilters.max_length)
+    results = results.filter(s => s.properties.length <= parsedFilters.max_length);
+
+  if (parsedFilters.word_count)
+    results = results.filter(s => s.properties.word_count === parsedFilters.word_count);
+
+  if (parsedFilters.contains_character)
+    results = results.filter(s =>
+      s.value.toLowerCase().includes(parsedFilters.contains_character.toLowerCase())
+    );
+
+  res.status(200).json({
+    data: results,
+    count: results.length,
+    interpreted_query: {
+      original: query,
+      parsed_filters: parsedFilters
+    }
+  });
+});
+
+//Get ALL strings with optional filters
 app.get('/strings', (req, res) => {
   // Example query params: ?is_palindrome=true&min_length=5&max_length=20&word_count=2&contains_character=a
   const { is_palindrome, min_length, max_length, word_count, contains_character } = req.query;
@@ -53,7 +97,7 @@ app.get('/strings', (req, res) => {
   });
 });
 
-// Geting a particular string
+// Geting a particular string by value
 app.get('/strings/:value', (req, res) => {
   const param = req.params.value.trim().toLowerCase();
   const stringData = strings.find((s) => s.value.toLowerCase() === param);
@@ -66,107 +110,6 @@ app.get('/strings/:value', (req, res) => {
   });
 });
 
-// Natural Language Filtering Endpoint
-app.get("/strings/filter-by-natural-language", (req, res) => {
-  const { query } = req.query;
-  if (!query) return res.status(400).json({ error: "Missing query parameter" });
-
-  const lowerQuery = query.toLowerCase();
-  const parsed_filters = {};
-  let results = [...strings];
-
-  try {
-    // --- Simple Natural Language Parsing Heuristics ---
-
-    // Palindrome detection
-    if (lowerQuery.includes("palindrome")) {
-      parsed_filters.is_palindrome = true;
-      results = results.filter((s) => s.properties.is_palindrome === true);
-    }
-
-    // Single / multiple word strings
-    if (lowerQuery.includes("single word")) {
-      parsed_filters.word_count = 1;
-      results = results.filter((s) => s.properties.word_count === 1);
-    } else if (lowerQuery.includes("two word")) {
-      parsed_filters.word_count = 2;
-      results = results.filter((s) => s.properties.word_count === 2);
-    } else if (lowerQuery.includes("three word")) {
-      parsed_filters.word_count = 3;
-      results = results.filter((s) => s.properties.word_count === 3);
-    }
-
-    // Length-based filters
-    const longerMatch = lowerQuery.match(/longer than (\d+)/);
-    if (longerMatch) {
-      const min = parseInt(longerMatch[1]);
-      parsed_filters.min_length = min + 1;
-      results = results.filter((s) => s.properties.length > min);
-    }
-
-    const shorterMatch = lowerQuery.match(/shorter than (\d+)/);
-    if (shorterMatch) {
-      const max = parseInt(shorterMatch[1]);
-      parsed_filters.max_length = max - 1;
-      results = results.filter((s) => s.properties.length < max);
-    }
-
-    // Contains letter
-    const letterMatch = lowerQuery.match(/letter (\w)/);
-    if (letterMatch) {
-      const char = letterMatch[1];
-      parsed_filters.contains_character = char;
-      results = results.filter((s) => s.value.includes(char));
-    }
-
-    // “contain” or “containing” + character
-    const containsMatch = lowerQuery.match(/contain(?:ing)? the letter (\w)/);
-    if (containsMatch) {
-      const char = containsMatch[1];
-      parsed_filters.contains_character = char;
-      results = results.filter((s) => s.value.includes(char));
-    }
-
-    // “first vowel” heuristic
-    if (lowerQuery.includes("first vowel")) {
-      parsed_filters.contains_character = "a"; // heuristic
-      results = results.filter((s) => s.value.includes("a"));
-    }
-
-    // If no filters recognized
-    if (Object.keys(parsed_filters).length === 0) {
-      return res.status(400).json({
-        error: "Unable to parse natural language query",
-      });
-    }
-
-    // Optional: Conflict check (e.g., contradictory filters)
-    if (
-      parsed_filters.min_length &&
-      parsed_filters.max_length &&
-      parsed_filters.min_length > parsed_filters.max_length
-    ) {
-      return res.status(422).json({
-        error: "Query parsed but resulted in conflicting filters",
-      });
-    }
-
-    // Return success response
-    res.status(200).json({
-      data: results,
-      count: results.length,
-      interpreted_query: {
-        original: query,
-        parsed_filters,
-      },
-    });
-  } catch (err) {
-    res.status(500).json({ 
-      error: "Internal server error", 
-      details: err.message 
-    });
-  }
-});
 
 
 app.delete('/strings/:value', (req, res) => {
